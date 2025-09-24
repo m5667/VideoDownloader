@@ -1,79 +1,130 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>YouTube Downloader</title>
-  <style>
-    body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
-    input { width: 60%; padding: 10px; margin: 10px 0; border-radius: 8px; border: 1px solid #ccc; }
-    button { padding: 10px 20px; border: none; border-radius: 8px; background: #007bff; color: #fff; cursor: pointer; }
-    button:hover { background: #0056b3; }
-    .video-card { margin-top: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 12px; display: inline-block; max-width: 400px; }
-    img { max-width: 320px; border-radius: 8px; }
-    .formats { margin-top: 15px; }
-    .formats button { margin: 5px; }
-    .playlist-item { border-bottom: 1px solid #ddd; padding: 10px; display: flex; align-items: center; }
-    .playlist-item img { width: 100px; margin-right: 10px; border-radius: 8px; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Video Downloader</title>
+<style>
+    body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: linear-gradient(to right, #ff7e5f, #feb47b);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        min-height: 100vh;
+    }
+    h1 {
+        margin-top: 50px;
+        color: white;
+        font-size: 2rem;
+    }
+    #url-input {
+        margin-top: 30px;
+        padding: 10px;
+        width: 90%;
+        max-width: 400px;
+        border-radius: 8px;
+        border: none;
+        font-size: 1rem;
+    }
+    #fetch-btn {
+        margin-top: 10px;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 8px;
+        background-color: #6a82fb;
+        color: white;
+        font-size: 1rem;
+        cursor: pointer;
+    }
+    #video-info {
+        margin-top: 20px;
+        width: 90%;
+        max-width: 500px;
+        color: white;
+    }
+    .video-card {
+        margin-top: 15px;
+        padding: 10px;
+        background: rgba(255,255,255,0.1);
+        border-radius: 8px;
+    }
+    .download-btn {
+        margin: 5px;
+        padding: 5px 10px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        color: white;
+    }
+</style>
 </head>
 <body>
-  <h1>YouTube Downloader</h1>
-  <input id="url" placeholder="Enter YouTube URL">
-  <button onclick="fetchInfo()">Get Info</button>
+<h1>Video Downloader</h1>
+<input type="text" id="url-input" placeholder="Enter YouTube URL">
+<button id="fetch-btn">Fetch</button>
 
-  <div id="video"></div>
+<div id="video-info"></div>
 
-  <script>
-    async function fetchInfo() {
-      const url = document.getElementById("url").value;
-      const res = await fetch(`/api/info?url=${encodeURIComponent(url)}`);
-      if (!res.ok) {
-        alert("Error fetching info");
-        return;
-      }
-      const data = await res.json();
-      renderData(data, url);
+<script>
+const fetchBtn = document.getElementById("fetch-btn");
+const urlInput = document.getElementById("url-input");
+const videoInfoDiv = document.getElementById("video-info");
+
+fetchBtn.addEventListener("click", async () => {
+    const url = urlInput.value.trim();
+    if (!url) return alert("Please enter a URL");
+
+    videoInfoDiv.innerHTML = "Loading...";
+
+    try {
+        const res = await fetch(`/info?url=${encodeURIComponent(url)}`);
+        const data = await res.json();
+        renderVideo(data);
+    } catch(err) {
+        videoInfoDiv.innerHTML = "Error fetching info.";
     }
+});
 
-    function renderData(data, url) {
-      const container = document.getElementById("video");
-      if (data.playlist) {
-        container.innerHTML = `<h2>Playlist: ${data.title}</h2>`;
-        data.entries.forEach(e => {
-          container.innerHTML += `
-            <div class="playlist-item">
-              <img src="${e.thumbnail}" alt="">
-              <div>
-                <p>${e.title}</p>
-                <button onclick="fetchInfoForVideo('${e.url}')">Download</button>
-              </div>
-            </div>
-          `;
+function renderVideo(info) {
+    videoInfoDiv.innerHTML = "";
+    if (info.entries) {
+        // Playlist mode
+        info.entries.forEach(video => {
+            const card = document.createElement("div");
+            card.className = "video-card";
+            card.innerHTML = `<strong>${video.title}</strong>`;
+            
+            ["144p","240p","360p","480p","720p","1080p"].forEach(q => {
+                const btn = document.createElement("button");
+                btn.className = "download-btn";
+                btn.style.backgroundColor = `hsl(${Math.random()*360},70%,50%)`;
+                btn.textContent = `MP4 ${q}`;
+                btn.onclick = () => window.open(`/download?url=${encodeURIComponent(video.url)}&format=${q}`, "_blank");
+                card.appendChild(btn);
+            });
+
+            videoInfoDiv.appendChild(card);
         });
-      } else {
-        container.innerHTML = `
-          <div class="video-card">
-            <h2>${data.title}</h2>
-            <img src="${data.thumbnail}" alt="Thumbnail">
-            <div class="formats">
-              ${data.formats.map(f => 
-                `<button onclick="download('${url}', '${f.format_id}')">${f.res} (${f.ext})</button>`
-              ).join("")}
-            </div>
-          </div>
-        `;
-      }
-    }
+    } else {
+        // Single video mode
+        const card = document.createElement("div");
+        card.className = "video-card";
+        card.innerHTML = `<strong>${info.title}</strong><br>`;
 
-    async function fetchInfoForVideo(url) {
-      const res = await fetch(`/api/info?url=${encodeURIComponent(url)}`);
-      const data = await res.json();
-      renderData(data, url);
-    }
+        ["bestvideo+bestaudio","bestaudio"].forEach(f => {
+            const btn = document.createElement("button");
+            btn.className = "download-btn";
+            btn.style.backgroundColor = `hsl(${Math.random()*360},70%,50%)`;
+            btn.textContent = f.includes("audio") ? "MP3" : "MP4";
+            btn.onclick = () => window.open(`/download?url=${encodeURIComponent(info.webpage_url)}&format=${f}`, "_blank");
+            card.appendChild(btn);
+        });
 
-    function download(url, format_id) {
-      window.location.href = `/api/download?url=${encodeURIComponent(url)}&format_id=${format_id}`;
+        videoInfoDiv.appendChild(card);
     }
-  </script>
+}
+</script>
 </body>
 </html>
