@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>YouTube Downloader</title>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
+    input { width: 60%; padding: 10px; margin: 10px 0; border-radius: 8px; border: 1px solid #ccc; }
+    button { padding: 10px 20px; border: none; border-radius: 8px; background: #007bff; color: #fff; cursor: pointer; }
+    button:hover { background: #0056b3; }
+    .video-card { margin-top: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 12px; display: inline-block; max-width: 400px; }
+    img { max-width: 320px; border-radius: 8px; }
+    .formats { margin-top: 15px; }
+    .formats button { margin: 5px; }
+    .playlist-item { border-bottom: 1px solid #ddd; padding: 10px; display: flex; align-items: center; }
+    .playlist-item img { width: 100px; margin-right: 10px; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <h1>YouTube Downloader</h1>
+  <input id="url" placeholder="Enter YouTube URL">
+  <button onclick="fetchInfo()">Get Info</button>
+
+  <div id="video"></div>
+
+  <script>
+    async function fetchInfo() {
+      const url = document.getElementById("url").value;
+      const res = await fetch(`/api/info?url=${encodeURIComponent(url)}`);
+      if (!res.ok) {
+        alert("Error fetching info");
+        return;
+      }
+      const data = await res.json();
+      renderData(data, url);
+    }
+
+    function renderData(data, url) {
+      const container = document.getElementById("video");
+      if (data.playlist) {
+        container.innerHTML = `<h2>Playlist: ${data.title}</h2>`;
+        data.entries.forEach(e => {
+          container.innerHTML += `
+            <div class="playlist-item">
+              <img src="${e.thumbnail}" alt="">
+              <div>
+                <p>${e.title}</p>
+                <button onclick="fetchInfoForVideo('${e.url}')">Download</button>
+              </div>
+            </div>
+          `;
+        });
+      } else {
+        container.innerHTML = `
+          <div class="video-card">
+            <h2>${data.title}</h2>
+            <img src="${data.thumbnail}" alt="Thumbnail">
+            <div class="formats">
+              ${data.formats.map(f => 
+                `<button onclick="download('${url}', '${f.format_id}')">${f.res} (${f.ext})</button>`
+              ).join("")}
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    async function fetchInfoForVideo(url) {
+      const res = await fetch(`/api/info?url=${encodeURIComponent(url)}`);
+      const data = await res.json();
+      renderData(data, url);
+    }
+
+    function download(url, format_id) {
+      window.location.href = `/api/download?url=${encodeURIComponent(url)}&format_id=${format_id}`;
+    }
+  </script>
+</body>
+</html>
