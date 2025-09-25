@@ -1,3 +1,5 @@
+import yt_dlp  # Add this import
+
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
