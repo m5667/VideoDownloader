@@ -1,1 +1,81 @@
-templates
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Video Downloader</title>
+<style>
+body {
+    margin: 0; font-family: Arial, sans-serif;
+    background: linear-gradient(to bottom right, #ff6a00, #ee0979);
+    color: #fff;
+    display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+    min-height: 100vh;
+}
+h1 { margin-top: 40px; text-align: center; font-size: 2em; }
+input[type="text"] { padding: 10px; font-size: 1em; width: 80%; max-width: 400px; border-radius: 8px; border: none; margin: 20px 0; }
+button { padding: 10px 20px; font-size: 1em; margin: 5px; border-radius: 8px; border: none; cursor: pointer; transition: 0.3s; }
+button:hover { opacity: 0.9; }
+.video-card { background: rgba(0,0,0,0.3); padding: 10px; border-radius: 10px; margin: 10px; width: 90%; max-width: 400px; }
+.spinner { border: 4px solid rgba(255,255,255,0.3); border-top: 4px solid #fff; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 20px auto; display: none; }
+@keyframes spin { 0% { transform: rotate(0deg);} 100% { transform: rotate(360deg);}}
+</style>
+</head>
+<body>
+<h1>Video Downloader</h1>
+<input type="text" id="url" placeholder="Enter YouTube URL">
+<button onclick="fetchInfo()">Fetch</button>
+<div class="spinner" id="spinner"></div>
+<div id="results"></div>
+
+<script>
+async function fetchInfo() {
+    const url = document.getElementById("url").value;
+    if (!url) return alert("Enter URL!");
+    const spinner = document.getElementById("spinner");
+    spinner.style.display = "block";
+    document.getElementById("results").innerHTML = "";
+    try {
+        const res = await fetch(`/info?url=${encodeURIComponent(url)}`);
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        spinner.style.display = "none";
+        displayResults(data, url);
+    } catch (err) {
+        spinner.style.display = "none";
+        alert("Error: " + err.message);
+    }
+}
+
+function displayResults(data, url) {
+    const results = document.getElementById("results");
+    if (data.is_playlist) {
+        data.videos.forEach(video => {
+            const card = document.createElement("div");
+            card.className = "video-card";
+            card.innerHTML = `<strong>${video.title}</strong><br>`;
+            video.formats.forEach(f => {
+                card.innerHTML += `<button onclick="downloadVideo('${url}','${f.format_id}')">MP4 ${f.height}p</button>`;
+            });
+            results.appendChild(card);
+        });
+    } else {
+        const card = document.createElement("div");
+        card.className = "video-card";
+        card.innerHTML = `<strong>${data.title}</strong><br>`;
+        data.mp4_formats.forEach(f => {
+            card.innerHTML += `<button onclick="downloadVideo('${url}','${f.format_id}')">MP4 ${f.height}p</button>`;
+        });
+        data.mp3_formats.forEach(f => {
+            card.innerHTML += `<button onclick="downloadVideo('${url}','${f.format_id}')">MP3 ${f.abr}kbps</button>`;
+        });
+        results.appendChild(card);
+    }
+}
+
+function downloadVideo(url, format_id) {
+    window.location.href = `/download?url=${encodeURIComponent(url)}&format_id=${format_id}`;
+}
+</script>
+</body>
+</html>
