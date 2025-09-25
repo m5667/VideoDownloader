@@ -620,6 +620,45 @@ async def get_video_info(request: Request):
         logger.error(f"Error in get_video_info: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
+@app.post("/api/basic-info")
+async def get_basic_video_info(request: Request):
+    """Get basic video info without yt-dlp (emergency endpoint)"""
+    try:
+        data = await request.json()
+        url = data.get("url")
+        
+        if not url:
+            raise HTTPException(status_code=400, detail="URL is required")
+        
+        # Extract video ID
+        video_id = downloader.extract_video_id(url)
+        if not video_id:
+            raise HTTPException(status_code=400, detail="Invalid YouTube URL")
+        
+        # Return basic info without using yt-dlp
+        basic_info = {
+            'type': 'video',
+            'title': f'YouTube Video ({video_id})',
+            'uploader': 'YouTube',
+            'duration': 'Unknown',
+            'view_count': 0,
+            'formats': [
+                {'resolution': '1080p', 'format_id': 'mp4'},
+                {'resolution': '720p', 'format_id': 'mp4'},
+                {'resolution': '480p', 'format_id': 'mp4'},
+                {'resolution': '360p', 'format_id': 'mp4'},
+            ],
+            'url': url
+        }
+        
+        return JSONResponse(content=basic_info)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_basic_video_info: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
 @app.get("/api/download")
 async def download_video(url: str, quality: str = "best", format: str = "mp4"):
     """Get direct download URL and redirect to it"""
