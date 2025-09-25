@@ -3,117 +3,93 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Video Downloader</title>
+  <title>YouTube Downloader</title>
   <style>
     body {
       margin: 0;
       font-family: Arial, sans-serif;
       background: linear-gradient(135deg, #6a11cb, #2575fc);
       color: white;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
       text-align: center;
+      padding: 40px;
     }
-    .container {
-      width: 95%;
-      max-width: 480px;
-      padding: 20px;
-      background: rgba(0,0,0,0.3);
-      border-radius: 20px;
-      box-shadow: 0 8px 20px rgba(0,0,0,0.4);
-      animation: fadeIn 0.6s ease-in-out;
-    }
-    h1 {
-      font-size: 1.8rem;
-      margin-bottom: 20px;
-      background: linear-gradient(to right, #ff416c, #ff4b2b);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
+    h1 { margin-bottom: 20px; }
     input {
-      width: 100%;
       padding: 12px;
+      width: 80%;
+      max-width: 400px;
       border-radius: 12px;
       border: none;
-      margin-bottom: 12px;
-      font-size: 1rem;
+      margin-bottom: 15px;
     }
     button {
       padding: 12px 20px;
+      border-radius: 12px;
       border: none;
-      border-radius: 12px;
-      margin: 5px;
-      cursor: pointer;
-      font-size: 1rem;
-      font-weight: bold;
+      background: #ff4081;
       color: white;
-      transition: transform 0.2s;
+      font-size: 16px;
+      cursor: pointer;
     }
-    button:hover {
-      transform: scale(1.05);
+    button:hover { background: #e73370; }
+
+    #spinner {
+      display: none;
+      margin: 20px auto;
+      border: 6px solid rgba(255,255,255,0.3);
+      border-top: 6px solid #fff;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
     }
-    .btn-fetch { background: #ff416c; }
-    .btn-download { background: #00c6ff; }
-    img {
-      width: 100%;
-      border-radius: 12px;
-      margin: 12px 0;
-    }
-    ul {
-      list-style: none;
-      padding: 0;
-    }
-    li {
-      margin: 8px 0;
-      padding: 10px;
-      background: rgba(255,255,255,0.1);
-      border-radius: 12px;
-    }
-    @keyframes fadeIn {
-      from {opacity: 0; transform: translateY(10px);}
-      to {opacity: 1; transform: translateY(0);}
-    }
+    @keyframes spin { 100% { transform: rotate(360deg); } }
+    #results img { max-width: 200px; border-radius: 10px; margin: 10px 0; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>Video Downloader</h1>
-    <input id="urlInput" type="text" placeholder="Enter YouTube URL">
-    <button class="btn-fetch" onclick="getInfo()">Fetch</button>
-    <div id="videoInfo"></div>
-  </div>
+  <h1>YouTube Downloader</h1>
+  <input type="text" id="url" placeholder="Paste YouTube link..." />
+  <br>
+  <button onclick="fetchInfo()">Get Formats</button>
+  <div id="spinner"></div>
+  <div id="results"></div>
 
   <script>
-    async function getInfo() {
-      const url = document.getElementById("urlInput").value;
-      if (!url) return alert("Please enter a URL");
+    async function fetchInfo() {
+      const url = document.getElementById("url").value;
+      if (!url) return;
+      document.getElementById("spinner").style.display = "block";
+      document.getElementById("results").innerHTML = "";
 
-      const res = await fetch(`/info?url=${encodeURIComponent(url)}`);
-      if (!res.ok) return alert("Failed to fetch video info");
-      const data = await res.json();
+      try {
+        const res = await fetch(`/info?url=${encodeURIComponent(url)}`);
+        const data = await res.json();
+        document.getElementById("spinner").style.display = "none";
 
-      let html = `
-        <h3>${data.title}</h3>
-        <img src="${data.thumbnail}" alt="Thumbnail">
-        <ul>
-      `;
-      data.formats.forEach(fmt => {
-        const label = fmt.ext.toUpperCase() + " " + (fmt.resolution || (fmt.abr ? fmt.abr + "kbps" : ""));
-        html += `
-          <li>
-            ${label}
-            <button class="btn-download" onclick="download('${url}','${fmt.format_id}')">Download</button>
-          </li>
-        `;
-      });
-      html += "</ul>";
-      document.getElementById("videoInfo").innerHTML = html;
-    }
+        if (data.error) {
+          document.getElementById("results").innerHTML = `<p>Error: ${data.error}</p>`;
+          return;
+        }
 
-    function download(url, format) {
-      window.location.href = `/download?url=${encodeURIComponent(url)}&format=${format}`;
+        let html = `<h2>${data.title}</h2>`;
+        if (data.thumbnail) html += `<img src="${data.thumbnail}" alt="thumbnail">`;
+
+        html += "<ul>";
+        data.formats.forEach(f => {
+          html += `<li>${f.ext.toUpperCase()} ${f.resolution} 
+            <a href="/download?url=${encodeURIComponent(url)}&format_id=${f.format_id}">
+              <button>Download</button>
+            </a>
+          </li>`;
+        });
+        html += "</ul>";
+
+        document.getElementById("results").innerHTML = html;
+      } catch (err) {
+        document.getElementById("spinner").style.display = "none";
+        document.getElementById("results").innerHTML = `<p>Error: ${err}</p>`;
+      }
     }
   </script>
 </body>
