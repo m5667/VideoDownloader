@@ -1,66 +1,89 @@
-    def get_download_url(self, video_url, quality='best', format_type='mp4'):
-        """Get direct download URL for the video"""
-        try:
-            ydl_opts = {
-                'quiet': True,
-                'no_warnings': True,
-                # Anti-bot detection measures
-                'extractor_args': {
-                    'youtube': {
-                        'skip': ['hls', 'dash'],
-                        'player_skip': ['configs'],
-                    }
-                },
-                # Use different user agent
-                'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                    'Accept-Language': 'en-us,en;q=0.5',
-                    'Sec-Fetch-Mode': 'navigate',
-                },
-                # Rate limiting
-                'sleep_interval': 1,
-                'max_sleep_interval': 5,
-                'nocheckcertificate': True,
-            }
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
+import yt_dlp
+import re
 
-            # Set format based on requirements
-            if format_type == 'mp3':
-                ydl_opts['format'] = 'bestaudio/best'
+app = FastAPI()
+templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Helper: filter formats for MP4/MP3
+def filter_formats(info):
+    video_formats = []
+    audio_formats = []
+    for f in info.get("formats", []):
+        if f.get("acodec") != "none" and f.get("vcodec") == "none":
+            # Audio only
+            audio_formats.append({
+                "format_id": f["format_id"],
+                "ext": f["ext"],
+                "abr": f.get("abr")
+            })
+        elif f.get("acodec") != "none" and f.get("vcodec") != "none":
+            # Video+audio
+            video_formats.append({
+                "format_id": f["format_id"],
+                "ext": f["ext"],
+                "height": f.get("height"),
+                "fps": f.get("fps")
+            })
+    # Remove duplicates by format_id
+    video_formats = {f['format_id']: f for f in video_formats}.values()
+    audio_formats = {f['format_id']: f for f in audio_formats}.values()
+    return list(video_formats), list(audio_formats)
+
+@app.get("/")
+async def home(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
+@app.get("/info")
+async def get_info(url: str):
+    if not url:
+        raise HTTPException(status_code=400, detail="URL required")
+    try:
+        ydl_opts = {"quiet": True, "no_warnings": True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            is_playlist = "entries" in info
+            data = {"title": info.get("title"), "is_playlist": is_playlist}
+
+            if is_playlist:
+                # Playlist: show MP4 only
+                videos = []
+                for entry in info["entries"]:
+                    v_formats, _ = filter_formats(entry)
+                    # Only MP4 video+audio
+                    mp4_formats = [f for f in v_formats if f["ext"] == "mp4"]
+                    videos.append({
+                        "title": entry.get("title"),
+                        "formats": mp4_formats
+                    })
+                data["videos"] = videos
             else:
-                if quality == 'best':
-                    ydl_opts['format'] = 'best[ext=mp4]/best'
-                elif quality == 'worst':
-                    ydl_opts['format'] = 'worst[ext=mp4]/worst'
-                else:
-                    # Extract height from quality (e.g., '720p' -> '720')
-                    height = re.findall(r'\d+', quality)
-                    if height:
-                        height = height[0]
-                        ydl_opts['format'] = f'best[height<={height}][ext=mp4]/best[height<={height}]/best[ext=mp4]/best'
-                    else:
-                        ydl_opts['format'] = 'best[ext=mp4]/best'
+                # Single video: show both MP4 and MP3
+                v_formats, a_formats = filter_formats(info)
+                data["mp4_formats"] = [f for f in v_formats if f["ext"] == "mp4"]
+                data["mp3_formats"] = [f for f in a_formats if f["ext"] == "mp3"]
+            return JSONResponse(content=data)
+    except yt_dlp.utils.DownloadError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(video_url, download=False)
-
-                # Return the URL of the best matching format
-                if 'url' in info:
-                    return info['url']
-                elif 'formats' in info and info['formats']:
-                    # Find the best format that matches our criteria
-                    for fmt in reversed(info['formats']):
-                        if fmt.get('url'):
-                            return fmt['url']
-
-                raise Exception("No suitable format found")
-
-        except Exception as e:
-            error_msg = str(e).lower()
-
-            if 'sign in to confirm' in error_msg or 'not a bot' in error_msg:
-                # Try alternative method
-                return self.get_download_url_fallback(video_url, quality, format_type)
-            else:
-                logger.error(f"Error getting download URL: {str(e)}")
-                raise HTTPException(status_code=500, detail="Unable to get download link. Please try again later.")
+@app.get("/download")
+async def download(url: str, format_id: str):
+    if not url or not format_id:
+        raise HTTPException(status_code=400, detail="URL and format required")
+    try:
+        ydl_opts = {
+            "format": format_id,
+            "quiet": True,
+            "no_warnings": True,
+            "outtmpl": "downloads/%(title)s.%(ext)s"
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url)
+            filename = ydl.prepare_filename(info)
+            return FileResponse(filename, filename=info["title"] + "." + info["ext"])
+    except yt_dlp.utils.DownloadError as e:
+        raise HTTPException(status_code=400, detail=str(e))
