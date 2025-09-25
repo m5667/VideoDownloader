@@ -2,111 +2,78 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>YouTube Downloader</title>
 <style>
-    body {
-        font-family: Arial, sans-serif;
-        background: linear-gradient(to right, #141E30, #243B55);
-        color: white;
-        padding: 20px;
-        min-height: 100vh;
-    }
-    h1 { text-align: center; margin-bottom: 20px; }
-    input[type="text"] { width: 100%; padding: 12px; font-size: 16px; border-radius: 5px; border: none; margin-bottom: 10px; }
-    button {
-        width: 100%;
-        padding: 12px;
-        background: #ff4b2b;
-        border: none;
-        border-radius: 5px;
-        color: white;
-        font-size: 16px;
-        cursor: pointer;
-        margin-bottom: 20px;
-    }
-    button:hover { background: #ff416c; }
-
-    .loading { text-align: center; display: none; margin: 20px 0; }
-    .spinner {
-        border: 5px solid #f3f3f3;
-        border-top: 5px solid #ff416c;
-        border-radius: 50%;
-        width: 40px;
-        height: 40px;
-        animation: spin 1s linear infinite;
-        margin: 0 auto;
-    }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
-    .quality-option {
-        background: #1c1c1c;
-        padding: 10px;
-        margin-bottom: 10px;
-        border-radius: 5px;
-    }
-    .quality-option a { color: #ff416c; text-decoration: none; }
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+    color: white;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 20px;
+}
+h1 { margin-bottom: 20px; }
+input { width: 90%; max-width: 400px; padding: 10px; border-radius: 8px; border: none; margin-bottom: 10px; }
+button { padding: 10px 20px; border-radius: 8px; border: none; background: #ff4b2b; color: white; font-weight: bold; cursor: pointer; }
+button:hover { background: #ff416c; }
+.video-list { width: 100%; max-width: 500px; margin-top: 20px; }
+.video-item { background: rgba(255,255,255,0.05); padding: 10px; margin-bottom: 10px; border-radius: 8px; }
+.spinner { display: none; margin-top: 20px; border: 5px solid rgba(255,255,255,0.1); border-top: 5px solid #ff4b2b; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; }
+@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
 <h1>YouTube Downloader</h1>
-
-<input type="text" id="url" placeholder="Enter YouTube URL">
-<button onclick="fetchInfo()">Get Quality Options</button>
-
-<div class="loading">
-    <div class="spinner"></div>
-    <p>Loading...</p>
-</div>
-
-<div id="quality-options"></div>
+<input type="text" id="url" placeholder="Paste YouTube URL">
+<button onclick="getInfo()">Run</button>
+<div class="spinner" id="spinner"></div>
+<div class="video-list" id="video-list"></div>
 
 <script>
-function fetchInfo() {
-    const url = document.getElementById('url').value.trim();
-    if (!url) { alert("Enter a URL!"); return; }
+async function getInfo() {
+    const url = document.getElementById('url').value;
+    const list = document.getElementById('video-list');
+    const spinner = document.getElementById('spinner');
+    list.innerHTML = '';
+    spinner.style.display = 'block';
+    try {
+        const res = await fetch(`/info?url=${encodeURIComponent(url)}`);
+        if (!res.ok) {
+            const err = await res.json();
+            alert(err.detail);
+            spinner.style.display = 'none';
+            return;
+        }
+        const data = await res.json();
+        spinner.style.display = 'none';
+        if (data.is_playlist) {
+            data.videos.forEach(v => {
+                const div = document.createElement('div');
+                div.className = 'video-item';
+                div.innerHTML = `<strong>${v.title}</strong><br>` +
+                    v.formats.map(f => `<button onclick="download('${url}','${f.format_id}')">${f.ext} ${f.height||''}p</button>`).join(' ');
+                list.appendChild(div);
+            });
+        } else {
+            const div = document.createElement('div');
+            div.className = 'video-item';
+            div.innerHTML = `<strong>${data.title}</strong><br>` +
+                (data.mp4_formats.map(f => `<button onclick="download('${url}','${f.format_id}')">MP4 ${f.height||''}p</button>`).join(' ') +
+                data.mp3_formats.map(f => `<button onclick="download('${url}','${f.format_id}')">MP3 ${f.abr||''}kbps</button>`).join(' '));
+            list.appendChild(div);
+        }
+    } catch(err) {
+        spinner.style.display = 'none';
+        alert('Error fetching video info.');
+    }
+}
 
-    document.querySelector('.loading').style.display = 'block';
-    document.getElementById('quality-options').innerHTML = '';
-
-    fetch(`/info?url=${encodeURIComponent(url)}`)
-        .then(res => res.json())
-        .then(data => {
-            document.querySelector('.loading').style.display = 'none';
-            const container = document.getElementById('quality-options');
-
-            if (data.is_playlist) {
-                data.videos.forEach(video => {
-                    const div = document.createElement('div');
-                    div.classList.add('quality-option');
-                    div.innerHTML = `<strong>${video.title}</strong><br>`;
-                    video.formats.forEach(f => {
-                        div.innerHTML += `<a href="/download?url=${encodeURIComponent(url)}&format_id=${f.format_id}">MP4 ${f.height || 'Audio'}p</a><br>`;
-                    });
-                    container.appendChild(div);
-                });
-            } else {
-                const mp4Div = document.createElement('div');
-                mp4Div.classList.add('quality-option');
-                mp4Div.innerHTML = `<strong>Video (MP4):</strong><br>`;
-                data.mp4_formats.forEach(f => {
-                    mp4Div.innerHTML += `<a href="/download?url=${encodeURIComponent(url)}&format_id=${f.format_id}">${f.height || 'Audio'}p</a><br>`;
-                });
-                container.appendChild(mp4Div);
-
-                const mp3Div = document.createElement('div');
-                mp3Div.classList.add('quality-option');
-                mp3Div.innerHTML = `<strong>Audio (MP3):</strong><br>`;
-                data.mp3_formats.forEach(f => {
-                    mp3Div.innerHTML += `<a href="/download?url=${encodeURIComponent(url)}&format_id=${f.format_id}">${f.abr || 'Audio'} kbps</a><br>`;
-                });
-                container.appendChild(mp3Div);
-            }
-        })
-        .catch(err => {
-            document.querySelector('.loading').style.display = 'none';
-            alert("Error fetching video info. Try a different URL.");
-        });
+function download(url, format_id) {
+    window.location = `/download?url=${encodeURIComponent(url)}&format_id=${format_id}`;
 }
 </script>
 </body>
