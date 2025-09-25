@@ -1,95 +1,105 @@
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse, FileResponse
-from fastapi.templating import Jinja2Templates
-import yt_dlp
-
-app = FastAPI()
-templates = Jinja2Templates(directory="templates")
-
-# Helper: filter formats for MP4/MP3
-def filter_formats(info):
-    video_formats = []
-    audio_formats = []
-    for f in info.get("formats", []):
-        if f.get("acodec") != "none" and f.get("vcodec") == "none":
-            # Audio only
-            audio_formats.append({
-                "format_id": f["format_id"],
-                "ext": f["ext"],
-                "abr": f.get("abr")
-            })
-        elif f.get("acodec") != "none" and f.get("vcodec") != "none":
-            # Video+audio
-            video_formats.append({
-                "format_id": f["format_id"],
-                "ext": f["ext"],
-                "height": f.get("height"),
-                "fps": f.get("fps")
-            })
-    # Remove duplicates by format_id
-    video_formats = {f['format_id']: f for f in video_formats}.values()
-    audio_formats = {f['format_id']: f for f in audio_formats}.values()
-    return list(video_formats), list(audio_formats)
-
-@app.get("/")
-async def home(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
-
-@app.get("/info")
-async def get_info(url: str):
-    if not url:
-        raise HTTPException(status_code=400, detail="URL required")
-    try:
-        ydl_opts = {
-            "quiet": True,
-            "no_warnings": True,
-            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",  # Custom User-Agent
-            "socket_timeout": 10,  # Increased timeout
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Video Downloader</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(to right, #ff7e5f, #feb47b);
+            color: white;
+            padding: 20px;
         }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            is_playlist = "entries" in info
-            data = {"title": info.get("title"), "is_playlist": is_playlist}
-
-            if is_playlist:
-                videos = []
-                for entry in info["entries"]:
-                    v_formats, _ = filter_formats(entry)
-                    mp4_formats = [f for f in v_formats if f["ext"] == "mp4"]
-                    videos.append({
-                        "title": entry.get("title"),
-                        "formats": mp4_formats
-                    })
-                data["videos"] = videos
-            else:
-                v_formats, a_formats = filter_formats(info)
-                data["mp4_formats"] = [f for f in v_formats if f["ext"] == "mp4"]
-                data["mp3_formats"] = [f for f in a_formats if f["ext"] == "mp3"]
-                
-            return JSONResponse(content=data)
-    except yt_dlp.utils.DownloadError as e:
-        # Handle bot protection issues better
-        if 'Sign in to confirm you’re not a bot' in str(e):
-            raise HTTPException(status_code=403, detail="YouTube bot protection triggered. Please try with cookies.")
-        else:
-            raise HTTPException(status_code=400, detail=str(e))
-
-@app.get("/download")
-async def download(url: str, format_id: str):
-    if not url or not format_id:
-        raise HTTPException(status_code=400, detail="URL and format required")
-    try:
-        ydl_opts = {
-            "format": format_id,
-            "quiet": True,
-            "no_warnings": True,
-            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",  # Custom User-Agent
-            "socket_timeout": 10,  # Increased timeout
-            "outtmpl": "downloads/%(title)s.%(ext)s"
+        h1 {
+            text-align: center;
         }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url)
-            filename = ydl.prepare_filename(info)
-            return FileResponse(filename, filename=info["title"] + "." + info["ext"])
-    except yt_dlp.utils.DownloadError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        #quality-options {
+            margin-top: 20px;
+        }
+        .quality-option {
+            background-color: #333;
+            padding: 10px;
+            margin: 5px;
+            border-radius: 5px;
+        }
+        .quality-option a {
+            color: #fff;
+            text-decoration: none;
+        }
+        .loading {
+            text-align: center;
+            margin-top: 20px;
+            display: none;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 2s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <h1>YouTube Video Downloader</h1>
+    
+    <input type="text" id="url" placeholder="Enter YouTube URL" style="width: 100%; padding: 10px; font-size: 16px;">
+    <button onclick="fetchInfo()" style="padding: 10px 20px; background-color: #3498db; color: white; border: none; border-radius: 5px;">Get Quality Options</button>
+
+    <div class="loading">
+        <div class="spinner"></div>
+        <p>Loading...</p>
+    </div>
+
+    <div id="quality-options">
+        <!-- Video quality options will be displayed here -->
+    </div>
+
+    <script>
+        function fetchInfo() {
+            const url = document.getElementById('url').value.trim();
+            if (url === "") {
+                alert("Please enter a URL!");
+                return;
+            }
+            
+            document.querySelector('.loading').style.display = 'block';
+            fetch(`/info?url=${encodeURIComponent(url)}`)
+                .then(response => response.json())
+                .then(data => {
+                    document.querySelector('.loading').style.display = 'none';
+                    let qualityContainer = document.getElementById('quality-options');
+                    qualityContainer.innerHTML = '';  // Clear previous results
+
+                    if (data.is_playlist) {
+                        data.videos.forEach(video => {
+                            let videoDiv = document.createElement('div');
+                            videoDiv.classList.add('quality-option');
+                            videoDiv.innerHTML = `<strong>${video.title}</strong><br/>`;
+                            video.formats.forEach(format => {
+                                videoDiv.innerHTML += `Quality: ${format.height || 'Audio'} - ${format.ext}<br/>`;
+                            });
+                            qualityContainer.appendChild(videoDiv);
+                        });
+                    } else {
+                        let mp4Div = document.createElement('div');
+                        mp4Div.classList.add('quality-option');
+                        mp4Div.innerHTML = `<strong>Video Quality Options (MP4):</strong><br/>`;
+                        data.mp4_formats.forEach(format => {
+                            mp4Div.innerHTML += `Quality: ${format.height || 'Audio'} - ${format.ext}<br/>`;
+                        });
+                        qualityContainer.appendChild(mp4Div);
+
+                        let mp3Div = document.createElement('div');
+                        mp3Div.classList.add('quality-option');
+                        mp3Div.innerHTML = `<strong>Audio Quality Options (MP3):</strong><br/>`;
+                        data.mp3_formats.forEach(format => {
+                            mp3Div.innerHTML += `Quality: ${format.abr} - ${format.ext}<br/>`;
+                        });
+                        qualityContainer
