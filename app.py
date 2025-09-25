@@ -505,34 +505,94 @@ class VideoDownloader:
     def get_download_url_fallback(self, video_url, quality='best', format_type='mp4'):
         """Fallback method for getting download URLs"""
         try:
-            # Use youtube-dl style format selection
-            fallback_opts = {
-                'quiet': True,
-                'no_warnings': True,
-                'format': 'best/worst',  # Simplified format
-                'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15',
-                },
-                'sleep_interval': 2,
-                'nocheckcertificate': True,
-            }
+            # Try different extraction methods
+            methods = [
+                self.try_direct_url_extraction,
+                self.try_embed_url_extraction,
+                self.try_mobile_url_extraction
+            ]
             
-            with yt_dlp.YoutubeDL(fallback_opts) as ydl:
-                info = ydl.extract_info(video_url, download=False)
-                
-                if 'url' in info:
-                    return info['url']
-                elif 'formats' in info and info['formats']:
-                    return info['formats'][-1]['url']
-                
-                # Last resort - return a generic YouTube URL
-                video_id = self.extract_video_id(video_url)
-                return f"https://www.youtube.com/watch?v={video_id}"
+            for method in methods:
+                try:
+                    url = method(video_url, quality, format_type)
+                    if url:
+                        return url
+                except Exception as e:
+                    logger.warning(f"URL extraction method {method.__name__} failed: {e}")
+                    continue
+            
+            # Last resort - return a YouTube redirect URL
+            video_id = self.extract_video_id(video_url)
+            return f"https://www.youtube.com/watch?v={video_id}"
                 
         except Exception as e:
-            logger.error(f"Fallback download URL failed: {str(e)}")
-            # Return original URL as last resort
+            logger.error(f"All URL extraction methods failed: {str(e)}")
             return video_url
+
+    def try_direct_url_extraction(self, video_url, quality, format_type):
+        """Try direct URL extraction with minimal options"""
+        opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'format': 'best' if format_type == 'mp4' else 'bestaudio',
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+            },
+            'nocheckcertificate': True,
+            'extract_flat': False,
+        }
+        
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(video_url, download=False)
+            if 'url' in info:
+                return info['url']
+            elif 'formats' in info and info['formats']:
+                return info['formats'][-1].get('url')
+        return None
+
+    def try_embed_url_extraction(self, video_url, quality, format_type):
+        """Try extraction from embed URL"""
+        video_id = self.extract_video_id(video_url)
+        embed_url = f"https://www.youtube.com/embed/{video_id}"
+        
+        opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'format': 'best' if format_type == 'mp4' else 'bestaudio',
+            'nocheckcertificate': True,
+        }
+        
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(embed_url, download=False)
+            if info and 'url' in info:
+                return info['url']
+        return None
+
+    def try_mobile_url_extraction(self, video_url, quality, format_type):
+        """Try extraction with mobile user agent"""
+        opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'format': 'best' if format_type == 'mp4' else 'bestaudio',
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
+            },
+            'nocheckcertificate': True,
+        }
+        
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(video_url, download=False)
+            if info and 'url' in info:
+                return info['url']
+        return None
+
+    def __del__(self):
+        """Cleanup temporary files"""
+        try:
+            if hasattr(self, 'cookie_file') and self.cookie_file and os.path.exists(self.cookie_file):
+                os.unlink(self.cookie_file)
+        except Exception as e:
+            logger.warning(f"Could not cleanup cookie file: {e}")
 
 # Initialize the downloader
 downloader = VideoDownloader()
