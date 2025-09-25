@@ -413,13 +413,14 @@
                 this.fetchBtn.disabled = true;
 
                 try {
-                    const response = await fetch('/api/info', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({ url })
-                    });
+                    // Try main endpoint first
+                    let response = await this.tryEndpoint('/api/info', { url });
+                    
+                    // If main endpoint fails, try basic endpoint
+                    if (!response.ok) {
+                        console.log('Main endpoint failed, trying basic endpoint...');
+                        response = await this.tryEndpoint('/api/basic-info', { url });
+                    }
 
                     if (!response.ok) {
                         const error = await response.json();
@@ -432,11 +433,32 @@
 
                 } catch (error) {
                     console.error('Analysis error:', error);
-                    this.showToast(error.message || 'Failed to analyze video', 'error');
+                    
+                    // Show user-friendly error message
+                    let errorMessage = 'Failed to analyze video';
+                    if (error.message.includes('bot')) {
+                        errorMessage = 'YouTube is blocking requests. Try again in a few minutes or use a different video.';
+                    } else if (error.message.includes('private')) {
+                        errorMessage = 'This video is private and cannot be downloaded.';
+                    } else if (error.message.includes('unavailable')) {
+                        errorMessage = 'This video is not available.';
+                    }
+                    
+                    this.showToast(errorMessage, 'error');
                 } finally {
                     this.showLoading(false);
                     this.fetchBtn.disabled = false;
                 }
+            }
+
+            async tryEndpoint(endpoint, data) {
+                return fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
             }
 
             displayVideoInfo(info) {
