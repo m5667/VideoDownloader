@@ -2,14 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>YouTube Downloader</title>
 <style>
 body {
     margin: 0;
     font-family: Arial, sans-serif;
     background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
-    color: white;
+    color: #fff;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -17,63 +17,80 @@ body {
     padding: 20px;
 }
 h1 { margin-bottom: 20px; }
-input { width: 90%; max-width: 400px; padding: 10px; border-radius: 8px; border: none; margin-bottom: 10px; }
-button { padding: 10px 20px; border-radius: 8px; border: none; background: #ff4b2b; color: white; font-weight: bold; cursor: pointer; }
-button:hover { background: #ff416c; }
-.video-list { width: 100%; max-width: 500px; margin-top: 20px; }
-.video-item { background: rgba(255,255,255,0.05); padding: 10px; margin-bottom: 10px; border-radius: 8px; }
-.spinner { display: none; margin-top: 20px; border: 5px solid rgba(255,255,255,0.1); border-top: 5px solid #ff4b2b; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; }
-@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+input, button {
+    padding: 10px;
+    margin: 5px 0;
+    border-radius: 5px;
+    border: none;
+    outline: none;
+}
+input { width: 100%; max-width: 400px; }
+button { background-color: #4caf50; color: #fff; cursor: pointer; }
+button:hover { background-color: #45a049; }
+.spinner {
+    display: none;
+    margin: 20px auto;
+    border: 5px solid #f3f3f3;
+    border-top: 5px solid #4caf50;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    animation: spin 1s linear infinite;
+}
+@keyframes spin { 100% { transform: rotate(360deg); } }
+.format-list { margin-top: 20px; width: 100%; max-width: 500px; }
+.format-item { margin: 5px 0; padding: 10px; background: rgba(255,255,255,0.1); border-radius: 5px; display: flex; justify-content: space-between; align-items: center; }
+a.download { color: #4caf50; text-decoration: none; font-weight: bold; }
+a.download:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
 <h1>YouTube Downloader</h1>
-<input type="text" id="url" placeholder="Paste YouTube URL">
-<button onclick="getInfo()">Run</button>
+<input type="text" id="urlInput" placeholder="Paste YouTube URL here">
+<button onclick="fetchFormats()">Get Formats</button>
 <div class="spinner" id="spinner"></div>
-<div class="video-list" id="video-list"></div>
+<div class="format-list" id="formats"></div>
 
 <script>
-async function getInfo() {
-    const url = document.getElementById('url').value;
-    const list = document.getElementById('video-list');
-    const spinner = document.getElementById('spinner');
-    list.innerHTML = '';
-    spinner.style.display = 'block';
+async function fetchFormats() {
+    const url = document.getElementById("urlInput").value.trim();
+    if (!url) return alert("Please enter a URL");
+    document.getElementById("spinner").style.display = "block";
+    document.getElementById("formats").innerHTML = "";
+
     try {
         const res = await fetch(`/info?url=${encodeURIComponent(url)}`);
-        if (!res.ok) {
-            const err = await res.json();
-            alert(err.detail);
-            spinner.style.display = 'none';
-            return;
-        }
+        if (!res.ok) throw new Error(await res.text());
         const data = await res.json();
-        spinner.style.display = 'none';
-        if (data.is_playlist) {
-            data.videos.forEach(v => {
-                const div = document.createElement('div');
-                div.className = 'video-item';
-                div.innerHTML = `<strong>${v.title}</strong><br>` +
-                    v.formats.map(f => `<button onclick="download('${url}','${f.format_id}')">${f.ext} ${f.height||''}p</button>`).join(' ');
-                list.appendChild(div);
-            });
-        } else {
-            const div = document.createElement('div');
-            div.className = 'video-item';
-            div.innerHTML = `<strong>${data.title}</strong><br>` +
-                (data.mp4_formats.map(f => `<button onclick="download('${url}','${f.format_id}')">MP4 ${f.height||''}p</button>`).join(' ') +
-                data.mp3_formats.map(f => `<button onclick="download('${url}','${f.format_id}')">MP3 ${f.abr||''}kbps</button>`).join(' '));
-            list.appendChild(div);
-        }
-    } catch(err) {
-        spinner.style.display = 'none';
-        alert('Error fetching video info.');
-    }
-}
+        const formatsDiv = document.getElementById("formats");
 
-function download(url, format_id) {
-    window.location = `/download?url=${encodeURIComponent(url)}&format_id=${format_id}`;
+        if(data.mp4_formats.length){
+            formatsDiv.innerHTML += "<h3>MP4 Formats</h3>";
+            data.mp4_formats.forEach(f => {
+                const item = document.createElement("div");
+                item.className = "format-item";
+                item.innerHTML = `<span>${f.height || ''}p ${f.fps || ''}fps</span>
+                                  <a class="download" href="${f.url}" target="_blank">Download</a>`;
+                formatsDiv.appendChild(item);
+            });
+        }
+
+        if(data.mp3_formats.length){
+            formatsDiv.innerHTML += "<h3>MP3 Formats</h3>";
+            data.mp3_formats.forEach(f => {
+                const item = document.createElement("div");
+                item.className = "format-item";
+                item.innerHTML = `<span>${f.abr || ''} kbps</span>
+                                  <a class="download" href="${f.url}" target="_blank">Download</a>`;
+                formatsDiv.appendChild(item);
+            });
+        }
+
+    } catch(e) {
+        alert("Error: " + e.message);
+    } finally {
+        document.getElementById("spinner").style.display = "none";
+    }
 }
 </script>
 </body>
