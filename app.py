@@ -1,5 +1,5 @@
-import yt_dlp  # Add this import
-
+import random
+import yt_dlp
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
@@ -7,8 +7,15 @@ from fastapi.templating import Jinja2Templates
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
-# Remove the StaticFiles mounting line if not using static files
-# app.mount("/static", StaticFiles(directory="static"), name="static")
+# Helper function to get a random User-Agent
+def get_random_user_agent():
+    user_agents = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:68.0) Gecko/20100101 Firefox/68.0",
+        "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:74.0) Gecko/20100101 Firefox/74.0"
+    ]
+    return random.choice(user_agents)
 
 # Helper: filter formats for MP4/MP3
 def filter_formats(info):
@@ -44,7 +51,15 @@ async def get_info(url: str):
     if not url:
         raise HTTPException(status_code=400, detail="URL required")
     try:
-        ydl_opts = {"quiet": True, "no_warnings": True}
+        # Add options for yt-dlp
+        ydl_opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "user_agent": get_random_user_agent(),
+            "referer": "https://www.youtube.com/",
+            "nocheckcertificate": True,  # Disable SSL checks
+        }
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             is_playlist = "entries" in info
@@ -76,12 +91,17 @@ async def download(url: str, format_id: str):
     if not url or not format_id:
         raise HTTPException(status_code=400, detail="URL and format required")
     try:
+        # Add options for yt-dlp to handle the download
         ydl_opts = {
             "format": format_id,
             "quiet": True,
             "no_warnings": True,
-            "outtmpl": "downloads/%(title)s.%(ext)s"
+            "outtmpl": "downloads/%(title)s.%(ext)s",  # Save downloaded files in 'downloads' folder
+            "user_agent": get_random_user_agent(),
+            "referer": "https://www.youtube.com/",
+            "nocheckcertificate": True,  # Disable SSL checks
         }
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url)
             filename = ydl.prepare_filename(info)
