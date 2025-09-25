@@ -1,21 +1,10 @@
-import random
-import yt_dlp
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
+import yt_dlp
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
-
-# Helper function to get a random User-Agent
-def get_random_user_agent():
-    user_agents = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:68.0) Gecko/20100101 Firefox/68.0",
-        "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:74.0) Gecko/20100101 Firefox/74.0"
-    ]
-    return random.choice(user_agents)
 
 # Helper: filter formats for MP4/MP3
 def filter_formats(info):
@@ -51,26 +40,16 @@ async def get_info(url: str):
     if not url:
         raise HTTPException(status_code=400, detail="URL required")
     try:
-        # Add options for yt-dlp
-        ydl_opts = {
-            "quiet": True,
-            "no_warnings": True,
-            "user_agent": get_random_user_agent(),
-            "referer": "https://www.youtube.com/",
-            "nocheckcertificate": True,  # Disable SSL checks
-        }
-
+        ydl_opts = {"quiet": True, "no_warnings": True}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             is_playlist = "entries" in info
             data = {"title": info.get("title"), "is_playlist": is_playlist}
 
             if is_playlist:
-                # Playlist: show MP4 only
                 videos = []
                 for entry in info["entries"]:
                     v_formats, _ = filter_formats(entry)
-                    # Only MP4 video+audio
                     mp4_formats = [f for f in v_formats if f["ext"] == "mp4"]
                     videos.append({
                         "title": entry.get("title"),
@@ -78,10 +57,10 @@ async def get_info(url: str):
                     })
                 data["videos"] = videos
             else:
-                # Single video: show both MP4 and MP3
                 v_formats, a_formats = filter_formats(info)
                 data["mp4_formats"] = [f for f in v_formats if f["ext"] == "mp4"]
                 data["mp3_formats"] = [f for f in a_formats if f["ext"] == "mp3"]
+                
             return JSONResponse(content=data)
     except yt_dlp.utils.DownloadError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -91,17 +70,12 @@ async def download(url: str, format_id: str):
     if not url or not format_id:
         raise HTTPException(status_code=400, detail="URL and format required")
     try:
-        # Add options for yt-dlp to handle the download
         ydl_opts = {
             "format": format_id,
             "quiet": True,
             "no_warnings": True,
-            "outtmpl": "downloads/%(title)s.%(ext)s",  # Save downloaded files in 'downloads' folder
-            "user_agent": get_random_user_agent(),
-            "referer": "https://www.youtube.com/",
-            "nocheckcertificate": True,  # Disable SSL checks
+            "outtmpl": "downloads/%(title)s.%(ext)s"
         }
-
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url)
             filename = ydl.prepare_filename(info)
