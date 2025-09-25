@@ -1,13 +1,12 @@
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
-from fastapi.staticfiles import StaticFiles
-import yt_dlp
-import re
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
-app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Remove the StaticFiles mounting line if not using static files
+# app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Helper: filter formats for MP4/MP3
 def filter_formats(info):
