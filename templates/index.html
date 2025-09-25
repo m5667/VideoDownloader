@@ -1,105 +1,113 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YouTube Video Downloader</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: linear-gradient(to right, #ff7e5f, #feb47b);
-            color: white;
-            padding: 20px;
-        }
-        h1 {
-            text-align: center;
-        }
-        #quality-options {
-            margin-top: 20px;
-        }
-        .quality-option {
-            background-color: #333;
-            padding: 10px;
-            margin: 5px;
-            border-radius: 5px;
-        }
-        .quality-option a {
-            color: #fff;
-            text-decoration: none;
-        }
-        .loading {
-            text-align: center;
-            margin-top: 20px;
-            display: none;
-        }
-        .spinner {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #3498db;
-            border-radius: 50%;
-            width: 30px;
-            height: 30px;
-            animation: spin 2s linear infinite;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>YouTube Downloader</title>
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        background: linear-gradient(to right, #141E30, #243B55);
+        color: white;
+        padding: 20px;
+        min-height: 100vh;
+    }
+    h1 { text-align: center; margin-bottom: 20px; }
+    input[type="text"] { width: 100%; padding: 12px; font-size: 16px; border-radius: 5px; border: none; margin-bottom: 10px; }
+    button {
+        width: 100%;
+        padding: 12px;
+        background: #ff4b2b;
+        border: none;
+        border-radius: 5px;
+        color: white;
+        font-size: 16px;
+        cursor: pointer;
+        margin-bottom: 20px;
+    }
+    button:hover { background: #ff416c; }
+
+    .loading { text-align: center; display: none; margin: 20px 0; }
+    .spinner {
+        border: 5px solid #f3f3f3;
+        border-top: 5px solid #ff416c;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+        margin: 0 auto;
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    .quality-option {
+        background: #1c1c1c;
+        padding: 10px;
+        margin-bottom: 10px;
+        border-radius: 5px;
+    }
+    .quality-option a { color: #ff416c; text-decoration: none; }
+</style>
 </head>
 <body>
-    <h1>YouTube Video Downloader</h1>
-    
-    <input type="text" id="url" placeholder="Enter YouTube URL" style="width: 100%; padding: 10px; font-size: 16px;">
-    <button onclick="fetchInfo()" style="padding: 10px 20px; background-color: #3498db; color: white; border: none; border-radius: 5px;">Get Quality Options</button>
+<h1>YouTube Downloader</h1>
 
-    <div class="loading">
-        <div class="spinner"></div>
-        <p>Loading...</p>
-    </div>
+<input type="text" id="url" placeholder="Enter YouTube URL">
+<button onclick="fetchInfo()">Get Quality Options</button>
 
-    <div id="quality-options">
-        <!-- Video quality options will be displayed here -->
-    </div>
+<div class="loading">
+    <div class="spinner"></div>
+    <p>Loading...</p>
+</div>
 
-    <script>
-        function fetchInfo() {
-            const url = document.getElementById('url').value.trim();
-            if (url === "") {
-                alert("Please enter a URL!");
-                return;
+<div id="quality-options"></div>
+
+<script>
+function fetchInfo() {
+    const url = document.getElementById('url').value.trim();
+    if (!url) { alert("Enter a URL!"); return; }
+
+    document.querySelector('.loading').style.display = 'block';
+    document.getElementById('quality-options').innerHTML = '';
+
+    fetch(`/info?url=${encodeURIComponent(url)}`)
+        .then(res => res.json())
+        .then(data => {
+            document.querySelector('.loading').style.display = 'none';
+            const container = document.getElementById('quality-options');
+
+            if (data.is_playlist) {
+                data.videos.forEach(video => {
+                    const div = document.createElement('div');
+                    div.classList.add('quality-option');
+                    div.innerHTML = `<strong>${video.title}</strong><br>`;
+                    video.formats.forEach(f => {
+                        div.innerHTML += `<a href="/download?url=${encodeURIComponent(url)}&format_id=${f.format_id}">MP4 ${f.height || 'Audio'}p</a><br>`;
+                    });
+                    container.appendChild(div);
+                });
+            } else {
+                const mp4Div = document.createElement('div');
+                mp4Div.classList.add('quality-option');
+                mp4Div.innerHTML = `<strong>Video (MP4):</strong><br>`;
+                data.mp4_formats.forEach(f => {
+                    mp4Div.innerHTML += `<a href="/download?url=${encodeURIComponent(url)}&format_id=${f.format_id}">${f.height || 'Audio'}p</a><br>`;
+                });
+                container.appendChild(mp4Div);
+
+                const mp3Div = document.createElement('div');
+                mp3Div.classList.add('quality-option');
+                mp3Div.innerHTML = `<strong>Audio (MP3):</strong><br>`;
+                data.mp3_formats.forEach(f => {
+                    mp3Div.innerHTML += `<a href="/download?url=${encodeURIComponent(url)}&format_id=${f.format_id}">${f.abr || 'Audio'} kbps</a><br>`;
+                });
+                container.appendChild(mp3Div);
             }
-            
-            document.querySelector('.loading').style.display = 'block';
-            fetch(`/info?url=${encodeURIComponent(url)}`)
-                .then(response => response.json())
-                .then(data => {
-                    document.querySelector('.loading').style.display = 'none';
-                    let qualityContainer = document.getElementById('quality-options');
-                    qualityContainer.innerHTML = '';  // Clear previous results
-
-                    if (data.is_playlist) {
-                        data.videos.forEach(video => {
-                            let videoDiv = document.createElement('div');
-                            videoDiv.classList.add('quality-option');
-                            videoDiv.innerHTML = `<strong>${video.title}</strong><br/>`;
-                            video.formats.forEach(format => {
-                                videoDiv.innerHTML += `Quality: ${format.height || 'Audio'} - ${format.ext}<br/>`;
-                            });
-                            qualityContainer.appendChild(videoDiv);
-                        });
-                    } else {
-                        let mp4Div = document.createElement('div');
-                        mp4Div.classList.add('quality-option');
-                        mp4Div.innerHTML = `<strong>Video Quality Options (MP4):</strong><br/>`;
-                        data.mp4_formats.forEach(format => {
-                            mp4Div.innerHTML += `Quality: ${format.height || 'Audio'} - ${format.ext}<br/>`;
-                        });
-                        qualityContainer.appendChild(mp4Div);
-
-                        let mp3Div = document.createElement('div');
-                        mp3Div.classList.add('quality-option');
-                        mp3Div.innerHTML = `<strong>Audio Quality Options (MP3):</strong><br/>`;
-                        data.mp3_formats.forEach(format => {
-                            mp3Div.innerHTML += `Quality: ${format.abr} - ${format.ext}<br/>`;
-                        });
-                        qualityContainer
+        })
+        .catch(err => {
+            document.querySelector('.loading').style.display = 'none';
+            alert("Error fetching video info. Try a different URL.");
+        });
+}
+</script>
+</body>
+</html>
