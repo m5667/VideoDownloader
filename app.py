@@ -1,147 +1,265 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>YouTube Downloader</title>
-  <style>
-    body {
-      margin: 0;
-      font-family: 'Segoe UI', sans-serif;
-      background: linear-gradient(135deg, #6a11cb, #2575fc);
-      color: #fff;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-    }
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+import yt_dlp
+import os
+import logging
+from pathlib import Path
+import re
 
-    .container {
-      background: rgba(0, 0, 0, 0.5);
-      padding: 25px;
-      border-radius: 16px;
-      max-width: 400px;
-      width: 100%;
-      text-align: center;
-      box-shadow: 0 8px 20px rgba(0,0,0,0.4);
-    }
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-    h1 {
-      font-size: 1.5rem;
-      margin-bottom: 15px;
-    }
+app = FastAPI(title="Video Downloader", description="Lightweight YouTube Downloader")
 
-    input[type="text"] {
-      width: 100%;
-      padding: 12px;
-      border-radius: 8px;
-      border: none;
-      margin-bottom: 15px;
-      font-size: 1rem;
-    }
+# Serve the main HTML file
+@app.get("/", response_class=HTMLResponse)
+async def read_root():
+    """Serve the main HTML page"""
+    html_file = Path("index.html")
+    if html_file.exists():
+        return HTMLResponse(content=html_file.read_text(), status_code=200)
+    else:
+        # Return embedded HTML if file doesn't exist
+        return HTMLResponse(content="""
+        <!DOCTYPE html>
+        <html>
+        <head><title>Video Downloader</title></head>
+        <body>
+            <h1>Video Downloader</h1>
+            <p>Please create an index.html file or use the embedded version.</p>
+        </body>
+        </html>
+        """, status_code=200)
 
-    button {
-      background: #ff416c;
-      background: linear-gradient(to right, #ff4b2b, #ff416c);
-      border: none;
-      padding: 12px 20px;
-      border-radius: 8px;
-      font-size: 1rem;
-      color: #fff;
-      cursor: pointer;
-      transition: transform 0.2s;
-      margin-bottom: 15px;
-    }
-
-    button:hover {
-      transform: scale(1.05);
-    }
-
-    .formats {
-      margin-top: 15px;
-      text-align: left;
-    }
-
-    .format-btn {
-      display: block;
-      width: 100%;
-      margin: 6px 0;
-      padding: 10px;
-      border-radius: 8px;
-      border: none;
-      background: #2575fc;
-      color: white;
-      font-size: 0.95rem;
-      cursor: pointer;
-    }
-
-    .format-btn:hover {
-      background: #1a5edb;
-    }
-
-    /* Spinner */
-    .spinner {
-      display: none;
-      margin: 15px auto;
-      width: 40px;
-      height: 40px;
-      border: 4px solid rgba(255, 255, 255, 0.3);
-      border-top: 4px solid #fff;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-    }
-
-    @keyframes spin {
-      100% { transform: rotate(360deg); }
-    }
-
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>YouTube Downloader</h1>
-    <input type="text" id="url" placeholder="Paste YouTube link here">
-    <button onclick="fetchInfo()">Get Formats</button>
-    <div class="spinner" id="spinner"></div>
-    <div id="formats" class="formats"></div>
-  </div>
-
-  <script>
-    async function fetchInfo() {
-      const url = document.getElementById("url").value;
-      if (!url) return alert("Please enter a YouTube link.");
-      
-      document.getElementById("spinner").style.display = "block";
-      document.getElementById("formats").innerHTML = "";
-
-      try {
-        const res = await fetch(`/info?url=${encodeURIComponent(url)}`);
-        const data = await res.json();
-        document.getElementById("spinner").style.display = "none";
-
-        if (data.error) {
-          document.getElementById("formats").innerHTML = `<p style="color:red">${data.error}</p>`;
-          return;
+class VideoDownloader:
+    def __init__(self):
+        self.ydl_opts_info = {
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': False,
         }
 
-        document.getElementById("formats").innerHTML = `<h3>${data.title}</h3>`;
-        data.formats.forEach(fmt => {
-          const btn = document.createElement("button");
-          btn.className = "format-btn";
-          btn.innerText = `${fmt.ext.toUpperCase()} - ${fmt.resolution}`;
-          btn.onclick = () => downloadVideo(url, fmt.format_id);
-          document.getElementById("formats").appendChild(btn);
-        });
+    def extract_video_info(self, url):
+        """Extract video information without downloading"""
+        try:
+            with yt_dlp.YoutubeDL(self.ydl_opts_info) as ydl:
+                info = ydl.extract_info(url, download=False)
+                
+                if 'entries' in info:
+                    # It's a playlist
+                    return self.format_playlist_info(info)
+                else:
+                    # It's a single video
+                    return self.format_video_info(info)
+                    
+        except Exception as e:
+            logger.error(f"Error extracting info: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Error processing URL: {str(e)}")
 
-      } catch (err) {
-        document.getElementById("spinner").style.display = "none";
-        document.getElementById("formats").innerHTML = `<p style="color:red">Error: ${err.message}</p>`;
-      }
-    }
+    def format_video_info(self, info):
+        """Format single video information"""
+        formats = []
+        for f in info.get('formats', []):
+            if f.get('ext') in ['mp4', 'webm'] and f.get('height'):
+                formats.append({
+                    'format_id': f.get('format_id'),
+                    'ext': f.get('ext'),
+                    'resolution': f"{f.get('height')}p",
+                    'filesize': f.get('filesize', 0),
+                    'url': f.get('url')
+                })
+        
+        return {
+            'type': 'video',
+            'title': info.get('title', 'Unknown Title'),
+            'uploader': info.get('uploader', 'Unknown'),
+            'duration': self.format_duration(info.get('duration')),
+            'view_count': info.get('view_count', 0),
+            'formats': formats,
+            'url': info.get('webpage_url', url)
+        }
 
-    function downloadVideo(url, format) {
-      window.location.href = `/download?url=${encodeURIComponent(url)}&format=${format}`;
-    }
-  </script>
-</body>
-</html>
+    def format_playlist_info(self, info):
+        """Format playlist information"""
+        videos = []
+        for entry in info['entries'][:20]:  # Limit to first 20 videos
+            if entry:
+                video_formats = []
+                if 'formats' in entry:
+                    for f in entry.get('formats', []):
+                        if f.get('ext') in ['mp4', 'webm'] and f.get('height'):
+                            video_formats.append({
+                                'format_id': f.get('format_id'),
+                                'ext': f.get('ext'),
+                                'resolution': f"{f.get('height')}p",
+                                'url': f.get('url')
+                            })
+                
+                videos.append({
+                    'title': entry.get('title', 'Unknown Title'),
+                    'duration': self.format_duration(entry.get('duration')),
+                    'url': entry.get('webpage_url', ''),
+                    'formats': video_formats
+                })
+        
+        return {
+            'type': 'playlist',
+            'title': info.get('title', 'Unknown Playlist'),
+            'uploader': info.get('uploader', 'Unknown'),
+            'video_count': len(info.get('entries', [])),
+            'videos': videos
+        }
+
+    def format_duration(self, duration):
+        """Format duration in seconds to readable format"""
+        if not duration:
+            return 'Unknown'
+        
+        hours = duration // 3600
+        minutes = (duration % 3600) // 60
+        seconds = duration % 60
+        
+        if hours > 0:
+            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        else:
+            return f"{minutes:02d}:{seconds:02d}"
+
+    def get_download_url(self, video_url, quality='best', format_type='mp4'):
+        """Get direct download URL for the video"""
+        try:
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+            }
+            
+            # Set format based on requirements
+            if format_type == 'mp3':
+                ydl_opts['format'] = 'bestaudio/best'
+            else:
+                if quality == 'best':
+                    ydl_opts['format'] = 'best[ext=mp4]/best'
+                elif quality == 'worst':
+                    ydl_opts['format'] = 'worst[ext=mp4]/worst'
+                else:
+                    # Extract height from quality (e.g., '720p' -> '720')
+                    height = re.findall(r'\d+', quality)
+                    if height:
+                        height = height[0]
+                        ydl_opts['format'] = f'best[height<={height}][ext=mp4]/best[height<={height}]/best[ext=mp4]/best'
+                    else:
+                        ydl_opts['format'] = 'best[ext=mp4]/best'
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(video_url, download=False)
+                
+                # Return the URL of the best matching format
+                if 'url' in info:
+                    return info['url']
+                elif 'formats' in info and info['formats']:
+                    # Find the best format that matches our criteria
+                    for fmt in reversed(info['formats']):
+                        if fmt.get('url'):
+                            return fmt['url']
+                
+                raise Exception("No suitable format found")
+                
+        except Exception as e:
+            logger.error(f"Error getting download URL: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to get download URL: {str(e)}")
+
+# Initialize the downloader
+downloader = VideoDownloader()
+
+@app.post("/api/info")
+async def get_video_info(request: Request):
+    """Get video or playlist information"""
+    try:
+        data = await request.json()
+        url = data.get("url")
+        
+        if not url:
+            raise HTTPException(status_code=400, detail="URL is required")
+        
+        # Validate YouTube URL
+        if not any(domain in url for domain in ['youtube.com', 'youtu.be']):
+            raise HTTPException(status_code=400, detail="Please provide a valid YouTube URL")
+        
+        info = downloader.extract_video_info(url)
+        return JSONResponse(content=info)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_video_info: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@app.get("/api/download")
+async def download_video(url: str, quality: str = "best", format: str = "mp4"):
+    """Get direct download URL and redirect to it"""
+    try:
+        if not url:
+            raise HTTPException(status_code=400, detail="URL parameter is required")
+        
+        # Validate YouTube URL
+        if not any(domain in url for domain in ['youtube.com', 'youtu.be']):
+            raise HTTPException(status_code=400, detail="Please provide a valid YouTube URL")
+        
+        # Get the direct download URL
+        download_url = downloader.get_download_url(url, quality, format)
+        
+        # Redirect to the direct download URL
+        return RedirectResponse(url=download_url, status_code=302)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in download_video: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Download failed: {str(e)}")
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {"status": "healthy", "message": "Video Downloader API is running"}
+
+# Error handlers
+@app.exception_handler(404)
+async def not_found_handler(request, exc):
+    return JSONResponse(
+        status_code=404,
+        content={"error": "Not found", "detail": "The requested resource was not found"}
+    )
+
+@app.exception_handler(500)
+async def internal_error_handler(request, exc):
+    return JSONResponse(
+        status_code=500,
+        content={"error": "Internal server error", "detail": "Something went wrong"}
+    )
+
+# Startup event
+@app.on_event("startup")
+async def startup_event():
+    logger.info("🚀 Video Downloader API started successfully!")
+    logger.info("📱 Mobile-optimized YouTube downloader ready")
+
+# Shutdown event  
+@app.on_event("shutdown")
+async def shutdown_event():
+    logger.info("👋 Video Downloader API shutting down...")
+
+if __name__ == "__main__":
+    import uvicorn
+    
+    # Get port from environment variable or default to 10000
+    port = int(os.environ.get("PORT", 10000))
+    
+    logger.info(f"Starting server on port {port}")
+    uvicorn.run(
+        "app:app", 
+        host="0.0.0.0", 
+        port=port, 
+        reload=False,
+        log_level="info"
+    )
