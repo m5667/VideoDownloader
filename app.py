@@ -40,7 +40,12 @@ async def get_info(url: str):
     if not url:
         raise HTTPException(status_code=400, detail="URL required")
     try:
-        ydl_opts = {"quiet": True, "no_warnings": True}
+        ydl_opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",  # Custom User-Agent
+            "socket_timeout": 10,  # Increased timeout
+        }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             is_playlist = "entries" in info
@@ -63,7 +68,11 @@ async def get_info(url: str):
                 
             return JSONResponse(content=data)
     except yt_dlp.utils.DownloadError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        # Handle bot protection issues better
+        if 'Sign in to confirm you’re not a bot' in str(e):
+            raise HTTPException(status_code=403, detail="YouTube bot protection triggered. Please try with cookies.")
+        else:
+            raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/download")
 async def download(url: str, format_id: str):
@@ -74,6 +83,8 @@ async def download(url: str, format_id: str):
             "format": format_id,
             "quiet": True,
             "no_warnings": True,
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",  # Custom User-Agent
+            "socket_timeout": 10,  # Increased timeout
             "outtmpl": "downloads/%(title)s.%(ext)s"
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
