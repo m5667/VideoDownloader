@@ -1,70 +1,32 @@
-from fastapi import FastAPI, Query
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi import FastAPI, Query, Request
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
+from fastapi.templating import Jinja2Templates
 import yt_dlp
 import os
 import uuid
 
 app = FastAPI()
+templates = Jinja2Templates(directory="templates")
 
-# Force yt-dlp to look like a real Android browser
+# yt-dlp common options
 COMMON_OPTS = {
     "quiet": True,
     "geo_bypass": True,
     "nocheckcertificate": True,
-    "extractor_args": {"youtube": {"player_skip": ["js"]}},
     "http_headers": {
         "User-Agent": "Mozilla/5.0 (Linux; Android 12; Mobile; rv:109.0) Gecko/117.0 Firefox/117.0"
     },
 }
 
+# Optional cookies file support (upload cookies.txt into /app/cookies.txt)
+COOKIES_FILE = "cookies.txt"
+if os.path.exists(COOKIES_FILE):
+    COMMON_OPTS["cookies"] = COOKIES_FILE
+
 
 @app.get("/", response_class=HTMLResponse)
-def home():
-    return """
-    <html>
-      <head>
-        <title>YouTube Downloader</title>
-        <style>
-          body {
-            margin: 0;
-            font-family: Arial, sans-serif;
-            background: linear-gradient(135deg, #6a11cb, #2575fc);
-            color: white;
-            text-align: center;
-            padding: 40px;
-          }
-          input {
-            padding: 10px;
-            width: 80%;
-            max-width: 400px;
-            border-radius: 12px;
-            border: none;
-            margin-bottom: 20px;
-          }
-          button {
-            padding: 10px 20px;
-            border-radius: 12px;
-            border: none;
-            background: #ff4081;
-            color: white;
-            font-size: 16px;
-            cursor: pointer;
-          }
-          button:hover {
-            background: #e73370;
-          }
-        </style>
-      </head>
-      <body>
-        <h1>YouTube Downloader</h1>
-        <form action="/info" method="get">
-          <input type="text" name="url" placeholder="Paste YouTube link..." required>
-          <br>
-          <button type="submit">Get Formats</button>
-        </form>
-      </body>
-    </html>
-    """
+def home(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
 
 
 @app.get("/info")
@@ -78,13 +40,11 @@ def get_info(url: str = Query(..., description="YouTube URL")):
         for f in info.get("formats", []):
             if not f.get("filesize"):
                 continue
-
             ext = f.get("ext")
             acodec = f.get("acodec")
             vcodec = f.get("vcodec")
 
-            # Only keep MP3 (audio) and MP4 (video+audio)
-            if ext == "mp3" or (ext == "m4a" and vcodec == "none"):
+            if ext in ["mp3", "m4a"] and vcodec == "none":
                 formats.append({
                     "format_id": f["format_id"],
                     "ext": "mp3",
@@ -99,13 +59,7 @@ def get_info(url: str = Query(..., description="YouTube URL")):
                     "filesize": f["filesize"]
                 })
 
-        # Deduplicate by ext + resolution
-        unique = {}
-        for f in formats:
-            key = (f["ext"], f["resolution"])
-            if key not in unique:
-                unique[key] = f
-
+        unique = {(f["ext"], f["resolution"]): f for f in formats}
         return JSONResponse({
             "title": info.get("title"),
             "thumbnail": info.get("thumbnail"),
@@ -124,11 +78,7 @@ def download(url: str, format_id: str):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
 
-        # Find actual file path
-        if "_filename" in info:
-            filename = info["_filename"]
-        else:
-            filename = ydl.prepare_filename(info)
+        filename = info.get("_filename", ydl.prepare_filename(info))
 
         return FileResponse(
             filename,
